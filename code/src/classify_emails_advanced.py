@@ -7,6 +7,9 @@ from email import policy
 from email.parser import BytesParser
 from transformers import GPT2Tokenizer, GPT2LMHeadModel
 import torch
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import hashlib
 
 # Load configuration from config_advanced.json
 try:
@@ -67,25 +70,94 @@ def parse_eml_file(file_path):
         logging.error(f"Error parsing .eml file {file_path}: {e}")
         return None
 
-# Function to extract text from email
-def extract_text_from_email(msg):
+# Function to extract text, metadata, and attachments from each layer of the email chain
+def extract_email_chain_details(msg):
     if msg is None:
-        return ""
-    if msg.is_multipart():
-        for part in msg.walk():
-            if part.get_content_type() == "text/plain":
+        return [], [], []
+
+    layers = []
+    metadata = []
+    attachments = []
+
+    current_msg = msg
+    layer = 0
+
+    while current_msg:
+        # Extract text
+        if current_msg.is_multipart():
+            text = ""
+            for part in current_msg.walk():
+                if part.get_content_type() == "text/plain":
+                    try:
+                        text = part.get_payload(decode=True).decode()
+                        break
+                    except Exception as e:
+                        logging.error(f"Error decoding email part in layer {layer}: {e}")
+                        text = ""
+        else:
+            try:
+                text = current_msg.get_payload(decode=True).decode()
+            except Exception as e:
+                logging.error(f"Error decoding email payload in layer {layer}: {e}")
+                text = ""
+
+        # Extract metadata
+        meta = {
+            "From": current_msg.get("From", ""),
+            "To": current_msg.get("To", ""),
+            "Subject": current_msg.get("Subject", ""),
+            "Date": current_msg.get("Date", "")
+        }
+
+        # Extract attachments
+        layer_attachments = []
+        if current_msg.is_multipart():
+            for part in current_msg.walk():
+                if part.get_content_disposition() == "attachment":
+                    filename = part.get_filename()
+                    if filename:
+                        payload = part.get_payload(decode=True)
+                        # Compute a hash of the attachment content for comparison
+                        attachment_hash = hashlib.md5(payload).hexdigest()
+                        layer_attachments.append({
+                            "filename": filename,
+                            "hash": attachment_hash
+                        })
+
+        layers.append(text)
+        metadata.append(meta)
+        attachments.append(layer_attachments)
+
+        # Move to the next layer (reply/forward)
+        next_layer_text = ""
+        for part in current_msg.walk():
+            if part.get_content_type() == "message/rfc822":
                 try:
-                    return part.get_payload(decode=True).decode()
+                    next_msg = part.get_payload()[0]
+                    current_msg = next_msg
+                    layer += 1
+                    break
                 except Exception as e:
-                    logging.error(f"Error decoding email part: {e}")
-                    return ""
-    else:
-        try:
-            return msg.get_payload(decode=True).decode()
-        except Exception as e:
-            logging.error(f"Error decoding email payload: {e}")
-            return ""
-    return ""
+                    logging.error(f"Error parsing nested message in layer {layer}: {e}")
+                    current_msg = None
+                    break
+            else:
+                current_msg = None
+
+    return layers, metadata, attachments
+
+# Function to compute text similarity using cosine similarity
+def compute_text_similarity(text1, text2):
+    if not text1 or not text2:
+        return 0.0
+    try:
+        vectorizer = TfidfVectorizer()
+        tfidf_matrix = vectorizer.fit_transform([text1, text2])
+        similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
+        return similarity
+    except Exception as e:
+        logging.error(f"Error computing text similarity: {e}")
+        return 0.0
 
 # Function to classify email using GPT-2
 def classify_email(text):
@@ -137,17 +209,70 @@ def detect_primary_intent(text):
     logging.info("Primary intent not detected, defaulting to Unknown")
     return "Unknown"
 
-# Function to detect duplicates
-def detect_duplicates(email_texts):
-    logging.info("Detecting duplicate emails...")
+# Function to detect duplicates by comparing email chains
+def detect_duplicates(email_chains, similarity_threshold=0.95):
+    logging.info("Detecting duplicate email chains...")
     duplicates = []
-    seen = set()
-    for i, (type_id, email_id, text) in enumerate(email_texts):
-        if text in seen:
-            duplicates.append({"type_id": type_id, "email_id": email_id})
-        else:
-            seen.add(text)
-    logging.info(f"Duplicate emails: {duplicates}")
+    chain_details = []
+
+    # Store details of each email chain for comparison
+    for type_id, email_id, layers, metadata, attachments in email_chains:
+        chain_signature = {
+            "layers": layers,
+            "metadata": metadata,
+            "attachments": attachments
+        }
+        chain_details.append((type_id, email_id, chain_signature))
+
+    # Compare each pair of email chains
+    for i, (type_id_i, email_id_i, chain_i) in enumerate(chain_details):
+        for j, (type_id_j, email_id_j, chain_j) in enumerate(chain_details[i+1:], start=i+1):
+            # Check if the number of layers matches
+            if len(chain_i["layers"]) != len(chain_j["layers"]):
+                continue
+
+            # Compare each layer
+            is_duplicate = True
+            layer_similarities = []
+            for layer_idx in range(len(chain_i["layers"])):
+                # Compare text similarity
+                text_sim = compute_text_similarity(chain_i["layers"][layer_idx], chain_j["layers"][layer_idx])
+                layer_similarities.append(text_sim)
+                if text_sim < similarity_threshold:
+                    is_duplicate = False
+                    break
+
+                # Compare metadata (allow for small differences in Date)
+                meta_i = chain_i["metadata"][layer_idx]
+                meta_j = chain_j["metadata"][layer_idx]
+                if (meta_i["From"] != meta_j["From"] or
+                    meta_i["To"] != meta_j["To"] or
+                    meta_i["Subject"] != meta_j["Subject"]):
+                    is_duplicate = False
+                    break
+
+                # Compare attachments
+                attachments_i = chain_i["attachments"][layer_idx]
+                attachments_j = chain_j["attachments"][layer_idx]
+                if len(attachments_i) != len(attachments_j):
+                    is_duplicate = False
+                    break
+                for att_i, att_j in zip(attachments_i, attachments_j):
+                    if att_i["filename"] != att_j["filename"] or att_i["hash"] != att_j["hash"]:
+                        is_duplicate = False
+                        break
+                if not is_duplicate:
+                    break
+
+            if is_duplicate:
+                duplicates.append({
+                    "email_1": {"type_id": type_id_i, "email_id": email_id_i},
+                    "email_2": {"type_id": type_id_j, "email_id": email_id_j},
+                    "layer_similarities": layer_similarities
+                })
+                logging.info(f"Found duplicate: type_{type_id_i}/email_{email_id_i} and type_{type_id_j}/email_{email_id_j}")
+
+    logging.info(f"Duplicate email chains: {duplicates}")
     return duplicates
 
 # Function to store classification results in individual folders
@@ -184,12 +309,12 @@ def store_classification(type_id, email_id, request_type, sub_request_type, fiel
     logging.info(f"Stored classification for type_{type_id}/email_{email_id} in {folder_path}")
 
 # Process all emails
-email_texts = []
+email_chains = []
 total_emails_processed = 0
 
 for email_type in email_types:
     type_id = email_type["type_id"]
-    num_emails = email_type.get("num_emails", num_emails_per_type)  # Use num_emails if specified (e.g., for type 17)
+    num_emails = email_type.get("num_emails", num_emails_per_type)
 
     logging.info(f"Processing emails for type_{type_id}...")
     type_dir = f"{email_files_dir}/type_{type_id}"
@@ -208,8 +333,11 @@ for email_type in email_types:
 
         logging.info(f"Processing email_{email_id}.eml...")
         msg = parse_eml_file(file_path)
-        text = extract_text_from_email(msg)
-        email_texts.append((type_id, email_id, text))
+        layers, metadata, attachments = extract_email_chain_details(msg)
+        
+        # Use the first layer for classification (initial email)
+        text = layers[0] if layers else ""
+        email_chains.append((type_id, email_id, layers, metadata, attachments))
 
         # Classify email
         request_type, sub_request_type = classify_email(text)
@@ -224,15 +352,15 @@ for email_type in email_types:
         store_classification(type_id, i, request_type, sub_request_type, fields, primary_intent)
         total_emails_processed += 1
 
-# Detect duplicates across all emails
-duplicates = detect_duplicates(email_texts)
-logging.info(f"Final duplicate emails: {duplicates}")
+# Detect duplicates across all email chains
+duplicates = detect_duplicates(email_chains, similarity_threshold=0.95)
+logging.info(f"Final duplicate email chains: {duplicates}")
 
 # Store duplicate information
 os.makedirs(classifications_dir, exist_ok=True)
 try:
     with open(f"{classifications_dir}/{duplicates_file}", "w") as f:
-        json.dump({"duplicate_emails": duplicates}, f, indent=4)
+        json.dump({"duplicate_email_chains": duplicates}, f, indent=4)
 except Exception as e:
     logging.error(f"Error writing duplicates file: {e}")
 
