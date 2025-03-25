@@ -78,17 +78,17 @@ def generate_random_date():
     delta = end_date - start_date
     random_days = random.randint(0, delta.days)
     random_date = start_date + timedelta(days=random_days)
-    return random_date.strftime("%d-%b-%Y")
+    return random_date.strftime(date_range["date_format"])  # Use configurable date format
 
 # Function to generate a random amount
 def generate_random_amount():
     min_amount = amount_range["min_amount"]
     max_amount = amount_range["max_amount"]
     amount = random.uniform(min_amount, max_amount)
-    return round(amount, 3)
+    return round(amount, amount_range["decimal_places"])  # Use configurable decimal places
 
 # Function to create a PDF with financial content
-def create_pdf_attachment(deal_id, request_type, sub_request_type):
+def create_pdf_attachment(deal_id, request_type, sub_request_type, amount, expiration_date):
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
@@ -123,8 +123,10 @@ def create_pdf_attachment(deal_id, request_type, sub_request_type):
         f"Description: {sub_request_type}",
         f"Borrower: {borrower}",
         f"Deal Name: {deal_name}",
+        f"Deal Amount: $ {amount:,.2f}",  # Added Deal Amount
+        f"Expiration Date: {expiration_date}",  # Added Expiration Date
         f"Effective {effective_date}, the lender shares of facility term loan A2 have been adjusted",
-        f"your share of commitment was USD {original_amount:,.3f}, it has been increased to USD {adjusted_amount:,.3f}",
+        f"Your share of commitment was USD {original_amount:,.3f}, it has been increased to USD {adjusted_amount:,.3f}",
         "",
         f"Bank Name: {bank_name}",
         f"Account #: {account_number}",
@@ -145,7 +147,7 @@ def create_pdf_attachment(deal_id, request_type, sub_request_type):
     return buffer, f"{pdf_config['filename_prefix']}{deal_id}{pdf_config['filename_suffix']}"
 
 # Function to create a DOCX with financial content
-def create_doc_attachment(deal_id, request_type, sub_request_type):
+def create_doc_attachment(deal_id, request_type, sub_request_type, amount, expiration_date):
     doc = Document()
     docx_config = attachment_details["docx"]
 
@@ -170,8 +172,10 @@ def create_doc_attachment(deal_id, request_type, sub_request_type):
         f"Description: {sub_request_type}",
         f"Borrower: {borrower}",
         f"Deal Name: {deal_name}",
+        f"Deal Amount: $ {amount:,.2f}",  # Added Deal Amount
+        f"Expiration Date: {expiration_date}",  # Added Expiration Date
         f"Effective {effective_date}, the lender shares of facility term loan A2 have been adjusted",
-        f"your share of commitment was USD {original_amount:,.3f}, it has been increased to USD {adjusted_amount:,.3f}",
+        f"Your share of commitment was USD {original_amount:,.3f}, it has been increased to USD {adjusted_amount:,.3f}",
         "",
         f"Bank Name: {bank_name}",
         f"Account #: {account_number}",
@@ -204,15 +208,14 @@ def create_email_chain(email_id, num_emails_in_chain):
     sub_request_type = random.choice(request_types[request_type])
     deal_id = random.randint(deal_id_min, deal_id_max)
     amount = random.randint(amount_min, amount_max)
+    expiration_date = date_range["expiration_date"]
 
     # Set subject and body
     subject = random.choice(subjects).format(request_type=request_type, sub_request_type=sub_request_type)
     body = random.choice(bodies).format(
         request_type=request_type,
         sub_request_type=sub_request_type,
-        deal_id=deal_id,
-        amount=amount,
-        expiration_date=date_range["expiration_date"]
+        deal_id=deal_id
     )
 
     msg['Subject'] = subject
@@ -221,9 +224,9 @@ def create_email_chain(email_id, num_emails_in_chain):
     # Add attachment (PDF or DOC)
     attachment_type = random.choice(["pdf", "doc"])
     if attachment_type == "pdf":
-        buffer, filename = create_pdf_attachment(deal_id, request_type, sub_request_type)
+        buffer, filename = create_pdf_attachment(deal_id, request_type, sub_request_type, amount, expiration_date)
     else:
-        buffer, filename = create_doc_attachment(deal_id, request_type, sub_request_type)
+        buffer, filename = create_doc_attachment(deal_id, request_type, sub_request_type, amount, expiration_date)
 
     attachment = MIMEApplication(buffer.read(), _subtype=attachment_type)
     attachment.add_header('Content-Disposition', 'attachment', filename=filename)

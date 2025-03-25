@@ -10,7 +10,7 @@
     },
     "extract_fields": {
       "deal_name": "Deal Name: (.*?)\\n",
-      "amount": "Amount: \\$(.*?)\\n",
+      "deal_amount": "Deal Amount: \\$(.*?)\\n",
       "expiration_date": "Expiration Date: (.*?)\\n"
     },
     "paths": {
@@ -32,8 +32,8 @@
         "Follow-up: {request_type} - {sub_request_type}"
     ],
     "bodies": [
-        "Dear Team,\n\nPlease process the following request:\nRequest Type: {request_type}\nSub-Request Type: {sub_request_type}\nDeal Name: Deal-{deal_id}\nAmount: ${amount}\nExpiration Date: {expiration_date}\n\nBest regards,\nJohn Doe",
-        "Hi,\n\nI need assistance with:\nRequest Type: {request_type}\nSub-Request Type: {sub_request_type}\nDeal Name: Deal-{deal_id}\nAmount: ${amount}\nExpiration Date: {expiration_date}\n\nThanks,\nJane Smith"
+        "Dear Team,\n\nPlease process the following request:\nRequest Type: {request_type}\nSub-Request Type: {sub_request_type}\nWith details provided in the attachment\n\nBest regards,\nJohn Doe",
+        "Hi,\n\nI need assistance with:\nRequest Type: {request_type}\nSub-Request Type: {sub_request_type}\nWith details provided in the attachment\n\nThanks,\nJane Smith"
     ],
     "bank_names": [
         "Bank of Example",
@@ -49,13 +49,15 @@
     "date_range": {
         "start_date": "2025-01-01",
         "end_date": "2025-12-31",
-        "expiration_date": "2025-12-31"
+        "expiration_date": "2025-12-31",
+        "date_format": "%d-%b-%Y"
     },
     "amount_range": {
         "min_amount": 1000000,
         "max_amount": 10000000,
         "adjustment_increment_min": 1000,
-        "adjustment_increment_max": 50000
+        "adjustment_increment_max": 50000,
+        "decimal_places": 3
     },
     "attachment_details": {
         "pdf": {
@@ -93,11 +95,11 @@
         "reply_body": "Replying to your email regarding {request_type}...\n\nOriginal Message:\n{body}"
     },
     "processing": {
-        "num_emails": 100,
+        "num_emails": 10,
         "deal_id_min": 1000,
         "deal_id_max": 9999,
-        "amount_min": 1000,
-        "amount_max": 100000
+        "amount_min": 5000,
+        "amount_max": 500000
     }
 
   }
