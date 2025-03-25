@@ -19,21 +19,18 @@ try:
     with open("config_advanced.json", "r") as config_file:
         config = json.load(config_file)
     
-    # Extract configuration sections
     request_types = config["request_types"]
     paths = config["paths"]
     processing = config["processing"]
     email_types = config["email_types"]
-    attachment_fields = config["attachment_fields"]  # Added for field extraction
+    attachment_fields = config["attachment_fields"]
     
-    # Extract GPT-2 config with fallback defaults
     gpt2_config = config.get("gpt2", {
         "model_name": "gpt2",
         "max_length_input": 512,
         "max_length_output": 1024
     })
 
-    # Extract specific configuration values
     email_files_dir = paths["email_files_dir"]
     classifications_dir = paths["classifications_dir"]
     email_processing_log_file = paths["email_processing_log_file"]
@@ -54,7 +51,7 @@ except KeyError as e:
     logging.error(f"Missing required key in config_advanced.json: {e}")
     raise KeyError(f"Missing required key in config_advanced.json: {e}")
 
-# Set up logging for email processing
+# Set up logging
 logging.basicConfig(
     filename=email_processing_log_file,
     level=logging.INFO,
@@ -80,7 +77,7 @@ def parse_eml_file(file_path):
         logging.error(f"Error parsing .eml file {file_path}: {e}")
         return None
 
-# Function to extract attachment text (PDF and DOCX)
+# Function to extract attachment text
 def extract_attachment_text(msg):
     attachment_text = ""
     if msg.is_multipart():
@@ -109,7 +106,7 @@ def extract_attachment_text(msg):
     logging.info(f"Extracted attachment text: '{attachment_text}'")
     return attachment_text.strip()
 
-# Function to extract text, metadata, and attachments from each layer of the email chain
+# Function to extract email chain details
 def extract_email_chain_details(msg):
     if msg is None:
         return [], [], [], ""
@@ -123,7 +120,6 @@ def extract_email_chain_details(msg):
     layer = 0
 
     while current_msg:
-        # Extract text from email body
         if current_msg.is_multipart():
             text = ""
             for part in current_msg.walk():
@@ -141,7 +137,6 @@ def extract_email_chain_details(msg):
                 logging.error(f"Error decoding email payload in layer {layer}: {e}")
                 text = ""
 
-        # Extract metadata
         meta = {
             "From": current_msg.get("From", ""),
             "To": current_msg.get("To", ""),
@@ -149,7 +144,6 @@ def extract_email_chain_details(msg):
             "Date": current_msg.get("Date", "")
         }
 
-        # Extract attachments from the layer where they appear (not just first layer)
         if current_msg.is_multipart():
             layer_attachments = []
             for part in current_msg.walk():
@@ -162,7 +156,7 @@ def extract_email_chain_details(msg):
                             "filename": filename,
                             "hash": attachment_hash
                         })
-                        if not attachment_text:  # Extract text only from the first attachment found
+                        if not attachment_text:
                             attachment_text = extract_attachment_text(current_msg)
             attachments.append(layer_attachments)
         else:
@@ -171,7 +165,6 @@ def extract_email_chain_details(msg):
         layers.append(text.strip())
         metadata.append(meta)
 
-        # Move to the next layer (reply/forward)
         for part in current_msg.walk():
             if part.get_content_type() == "message/rfc822":
                 try:
@@ -188,7 +181,7 @@ def extract_email_chain_details(msg):
 
     return layers, metadata, attachments, attachment_text
 
-# Function to compute text similarity using cosine similarity
+# Function to compute text similarity
 def compute_text_similarity(text1, text2):
     if not text1 or not text2:
         return 0.0
@@ -201,14 +194,13 @@ def compute_text_similarity(text1, text2):
         logging.error(f"Error computing text similarity: {e}")
         return 0.0
 
-# Function to classify email using GPT-2 with rule-based fallback
+# Function to classify email using GPT-2 with rule-based fallback for request type and sub-request type
 def classify_email(text):
-    logging.info("Classifying email content...")
+    logging.info("Classifying email content for request type and sub-request type...")
     if not text:
         logging.warning("Empty email text, returning default classification.")
         return "Unknown", "Unknown"
 
-    # Improved prompt for GPT-2
     prompt = f"""Classify the following email body into a request type and sub-request type from the list: {list(request_types.keys())}. Use this format:
 
     Request Type: [type]
@@ -224,8 +216,8 @@ def classify_email(text):
             max_length=gpt2_max_length_output,
             num_return_sequences=1,
             pad_token_id=tokenizer.eos_token_id,
-            temperature=0.7,  # Controlled randomness
-            top_k=50  # Top-k sampling for better output
+            temperature=0.7,
+            top_k=50
         )
         response = tokenizer.decode(outputs[0], skip_special_tokens=True)
         logging.info(f"GPT-2 classification response: '{response}'")
@@ -233,13 +225,11 @@ def classify_email(text):
         logging.error(f"Error during GPT-2 classification: {e}")
         response = ""
 
-    # Extract from GPT-2 response
     request_type_match = re.search(r"Request Type: (.*?)\n", response)
     sub_request_type_match = re.search(r"Sub-Request Type: (.*?)\n", response)
     request_type = request_type_match.group(1) if request_type_match else None
     sub_request_type = sub_request_type_match.group(1) if sub_request_type_match else None
 
-    # Rule-based fallback with contextual search
     if not request_type or request_type not in request_types or not sub_request_type:
         logging.info("Falling back to rule-based classification...")
         text_lower = text.lower()
@@ -260,11 +250,49 @@ def classify_email(text):
     logging.info(f"Classification result - Request Type: {request_type}, Sub-Request Type: {sub_request_type}")
     return request_type, sub_request_type
 
+# Function to detect primary intent
+def detect_primary_intent(text, attachment_text=""):
+    logging.info("Detecting primary intent for classification...")
+    combined_text = text + "\n" + attachment_text
+    
+    prompt = f"""Determine the primary intent of the following email and its attachments. Choose from: {list(request_types.keys())} or "Unknown" if none match. Return only the intent:
+
+    Email body and attachments:
+    {combined_text}
+    """
+    try:
+        inputs = tokenizer(prompt, return_tensors="pt", max_length=gpt2_max_length_input, truncation=True)
+        outputs = model.generate(
+            **inputs,
+            max_length=gpt2_max_length_output,
+            num_return_sequences=1,
+            pad_token_id=tokenizer.eos_token_id,
+            temperature=0.7,
+            top_k=50
+        )
+        primary_intent = tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
+        logging.info(f"GPT-2 detected intent: '{primary_intent}'")
+    except Exception as e:
+        logging.error(f"Error during GPT-2 intent detection: {e}")
+        primary_intent = ""
+
+    if not primary_intent or primary_intent not in request_types:
+        logging.info("Falling back to rule-based intent detection...")
+        intent_scores = {}
+        combined_text_lower = combined_text.lower()
+        for request_type in request_types.keys():
+            count = combined_text_lower.count(request_type.lower())
+            if count > 0:
+                intent_scores[request_type] = count
+        primary_intent = max(intent_scores, key=intent_scores.get) if intent_scores else "Unknown"
+
+    logging.info(f"Final primary intent: {primary_intent}")
+    return primary_intent
+
 # Function to extract fields from attachment text
 def extract_fields(attachment_text):
     logging.info("Extracting fields from attachments...")
     fields = {}
-    # Updated patterns based on generated attachment formats
     patterns = {
         "deal_name": r"Deal Name: (Deal-\d+)",
         "original_amount": r"Original Amount: \$ ([\d,]+\.\d{3})",
@@ -277,7 +305,6 @@ def extract_fields(attachment_text):
         "account_name": r"Account Name: (.+?)(?:\n|$)"
     }
     
-    # Extract all request types and sub-request types from attachment
     request_matches = re.findall(r"Request Type: (.+?)\nDescription: (.+?)(?:\n|$)", attachment_text)
     fields["requests"] = [{"request_type": rt, "sub_request_type": srt} for rt, srt in request_matches]
 
@@ -288,27 +315,7 @@ def extract_fields(attachment_text):
     logging.info(f"Extracted fields: {fields}")
     return fields
 
-# Function to detect primary intent in multi-request emails
-def detect_primary_intent(text, attachment_text=""):
-    logging.info("Detecting primary intent...")
-    combined_text = text + "\n" + attachment_text  # Combine email body and attachment text for context
-    intent_scores = {}
-    
-    for request_type in request_types.keys():
-        # Count occurrences in combined text
-        count = combined_text.lower().count(request_type.lower())
-        if count > 0:
-            intent_scores[request_type] = count
-    
-    if intent_scores:
-        primary_intent = max(intent_scores, key=intent_scores.get)
-        logging.info(f"Primary intent detected: {primary_intent}")
-        return primary_intent
-    
-    logging.info("Primary intent not detected, defaulting to Unknown")
-    return "Unknown"
-
-# Function to detect duplicates by comparing email chains
+# Function to detect duplicates
 def detect_duplicates(email_chains, similarity_threshold=0.95):
     logging.info("Detecting duplicate email chains...")
     duplicates = []
@@ -322,6 +329,15 @@ def detect_duplicates(email_chains, similarity_threshold=0.95):
         }
         chain_details.append((type_id, email_id, chain_signature))
 
+    def has_reply_indicator(metadata, layer_text, original_subject):
+        current_subject = metadata["Subject"].strip().lower()
+        original_subject = original_subject.strip().lower()
+        subject_has_re = current_subject.startswith("re:") or " re: " in current_subject
+        body_has_re = ("re: " + original_subject) in layer_text.lower()
+        clean_current_subject = current_subject.replace("re:", "").strip()
+        subject_matches = clean_current_subject == original_subject
+        return (subject_has_re or body_has_re) and subject_matches
+
     for i, (type_id_i, email_id_i, chain_i) in enumerate(chain_details):
         for j, (type_id_j, email_id_j, chain_j) in enumerate(chain_details[i+1:], start=i+1):
             if len(chain_i["layers"]) != len(chain_j["layers"]):
@@ -329,6 +345,8 @@ def detect_duplicates(email_chains, similarity_threshold=0.95):
 
             is_duplicate = True
             layer_similarities = []
+            original_subject = chain_i["metadata"][0]["Subject"]
+
             for layer_idx in range(len(chain_i["layers"])):
                 text_sim = compute_text_similarity(chain_i["layers"][layer_idx], chain_j["layers"][layer_idx])
                 layer_similarities.append(text_sim)
@@ -338,6 +356,14 @@ def detect_duplicates(email_chains, similarity_threshold=0.95):
 
                 meta_i = chain_i["metadata"][layer_idx]
                 meta_j = chain_j["metadata"][layer_idx]
+                
+                is_reply_i = has_reply_indicator(meta_i, chain_i["layers"][layer_idx], original_subject)
+                is_reply_j = has_reply_indicator(meta_j, chain_j["layers"][layer_idx], original_subject)
+                
+                if is_reply_i != is_reply_j:
+                    is_duplicate = False
+                    break
+                    
                 if (meta_i["From"] != meta_j["From"] or
                     meta_i["To"] != meta_j["To"] or
                     meta_i["Subject"] != meta_j["Subject"]):
@@ -367,22 +393,21 @@ def detect_duplicates(email_chains, similarity_threshold=0.95):
     logging.info(f"Duplicate email chains: {duplicates}")
     return duplicates
 
-# Function to store classification results in individual folders
-def store_classification(type_id, email_id, request_type, sub_request_type, fields, primary_intent):
-    if request_type not in request_types:
-        logging.warning(f"Invalid request_type '{request_type}' for type_{type_id}/email_{email_id}, using 'Unknown'")
-        request_type = "Unknown"
+# Function to store classification results
+def store_classification(type_id, email_id, primary_intent, request_type, sub_request_type, fields):
+    if primary_intent not in request_types:
+        logging.warning(f"Invalid primary_intent '{primary_intent}' for type_{type_id}/email_{email_id}, using 'Unknown'")
+        primary_intent = "Unknown"
     
-    safe_request_type = re.sub(r'[^a-zA-Z0-9\-]', '_', request_type)
-    folder_path = f"{classifications_dir}/type_{type_id}/{safe_request_type}/email_{email_id}"
+    safe_intent = re.sub(r'[^a-zA-Z0-9\-]', '_', primary_intent)
+    folder_path = f"{classifications_dir}/type_{type_id}/{safe_intent}/email_{email_id}"
     os.makedirs(folder_path, exist_ok=True)
     
-    # Store classification result in JSON, including all extracted fields
     result = {
+        "primary_intent": primary_intent,
         "request_type": request_type,
         "sub_request_type": sub_request_type,
-        "fields": fields,
-        "primary_intent": primary_intent
+        "fields": fields
     }
     
     try:
@@ -392,7 +417,6 @@ def store_classification(type_id, email_id, request_type, sub_request_type, fiel
         logging.error(f"Error writing classification.json for type_{type_id}/email_{email_id}: {e}")
         return
     
-    # Corrected .eml file naming convention to match generation script
     eml_source_path = f"{email_files_dir}/type_{type_id}/email_{type_id}_{email_id}.eml"
     eml_dest_path = f"{folder_path}/email_{type_id}_{email_id}.eml"
     try:
@@ -430,24 +454,24 @@ for email_type in email_types:
         msg = parse_eml_file(file_path)
         layers, metadata, attachments, attachment_text = extract_email_chain_details(msg)
         
-        # Use the full email chain for classification (join all layers)
         full_text = "\n".join(layers) if layers else ""
         email_chains.append((type_id, email_id, layers, metadata, attachments, attachment_text))
 
-        # Classify email based on full chain
-        request_type, sub_request_type = classify_email(full_text)
-
-        # Extract fields from attachment text
-        fields = extract_fields(attachment_text)
-
-        # Detect primary intent using both email body and attachment text
+        # Classify based on primary intent
         primary_intent = detect_primary_intent(full_text, attachment_text)
 
-        # Store classification
-        store_classification(type_id, i, request_type, sub_request_type, fields, primary_intent)
+        # Get latest request type and sub-request type from the last layer
+        latest_text = layers[-1] if layers else ""
+        request_type, sub_request_type = classify_email(latest_text)
+
+        # Extract fields
+        fields = extract_fields(attachment_text)
+
+        # Store classification with all details
+        store_classification(type_id, i, primary_intent, request_type, sub_request_type, fields)
         total_emails_processed += 1
 
-# Detect duplicates across all email chains
+# Detect duplicates
 duplicates = detect_duplicates(email_chains, similarity_threshold=0.95)
 logging.info(f"Final duplicate email chains: {duplicates}")
 
