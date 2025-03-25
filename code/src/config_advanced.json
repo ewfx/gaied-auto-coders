@@ -150,9 +150,7 @@
       "min_days_after_effective": 30,
       "max_days_after_effective": 365
   },
-  "gpt2": {
-      "model_name": "gpt2",
-      "max_length_input": 512,
-      "max_length_output": 1024
+  "bert": { 
+      "max_length_input": 512
   }
-}
+  }
