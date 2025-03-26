@@ -28,7 +28,7 @@ NOTE: We have not used any sample PDF or DOC file or fixed data to execute the a
 
          c. This generate number of eml files with either PDF or DOC attachment with dynamic body sturcture under one dynamically generated folder email_files along with one log file will be generated where for each file generation activities will be logged.
 
-         d. Now to classify execute classify_emails.py file following python command (For VS Code python classify_emails.py) provided folder path is correctly selected. (Before execution point the path to email_files folder).
+         d. Now to classify execute classify_emails_with_confidence_score.py file following python command (For VS Code python classify_emails_with_confidence_score.py) provided folder path is correctly selected. (Before execution point the path to email_files folder).
 
          e. once the file execution will be completed we will see we will be seeing one dynamically generated folder called Classification and under this we will be seeing all request type folders based on classification from the above code.
 
@@ -44,7 +44,7 @@ NOTE: We have not used any sample PDF or DOC file or fixed data to execute the a
 
          c. This generate number of eml files with either PDF or DOC or conatins both DOC and PDF attachment with dynamic body sturcture under one dynamically generated folder email_files and inside this type folder will be generated basded on configured on the Config_Advaced.json file along with one log file will be generated where for each file generation activities will be logged.
 
-         d. Now to classify execute classify_emails_advanced.py file following python command (For VS Code python classify_emails_advanced.py) provided folder path is correctly selected. (Before execution point the path to email_files folder).
+         d. Now to classify execute classify_emails_advanced_with_confidence_score.py file following python command (For VS Code python classify_emails_advanced_with_confidence_score.py) provided folder path is correctly selected. (Before execution point the path to email_files folder).
 
          e. once the file execution will be completed we will see we will be seeing one dynamically generated folder called Classification and under this we will be seeing all type folder are getting generated and under those type folders request type folders based on classification from the above code gets generated.
 
@@ -66,7 +66,7 @@ NOTE: We have not used any sample PDF or DOC file or fixed data to execute the a
 
          c. This generate number of eml files with either PDF or DOC attachment with dynamic body sturcture under one dynamically generated folder email_files along with one log file will be generated where for each file generation activities will be logged.
 
-         d. Now to classify execute classify_emails_bert.py file following python command (For VS Code python classify_emails_bert.py) provided folder path is correctly selected. (Before execution point the path to email_files folder).
+         d. Now to classify execute classify_email_bert_confidencescore.py file following python command (For VS Code python classify_email_bert_confidencescore.py) provided folder path is correctly selected. (Before execution point the path to email_files folder).
 
          e. once the file execution will be completed we will see we will be seeing one dynamically generated folder called Classification and under this we will be seeing all request type folders based on classification from the above code.
 
@@ -82,7 +82,7 @@ NOTE: We have not used any sample PDF or DOC file or fixed data to execute the a
 
          c. This generate number of eml files with either PDF or DOC or conatins both DOC and PDF attachment with dynamic body sturcture under one dynamically generated folder email_files and inside this type folder will be generated basded on configured on the Config_Advaced.json file along with one log file will be generated where for each file generation activities will be logged.
 
-         d. Now to classify execute classify_emails_bert_advanced.py file following python command (For VS Code python classify_emails_bert_advanced.py) provided folder path is correctly selected. (Before execution point the path to email_files folder).
+         d. Now to classify execute classify_email_bert_advanced_confidencescore.py file following python command (For VS Code python classify_email_bert_advanced_confidencescore.py) provided folder path is correctly selected. (Before execution point the path to email_files folder).
 
          e. once the file execution will be completed we will see we will be seeing one dynamically generated folder called Classification and under this we will be seeing all type folder are getting generated and under those type folders request type folders based on classification from the above code gets generated.
 
